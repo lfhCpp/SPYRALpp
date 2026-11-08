@@ -21,6 +21,10 @@ PROJECT = Path(__file__).resolve().parents[1]
 BIN = Path(os.environ.get("SPYRALPP_BIN", PROJECT / "build"))
 ENGINE = BIN / "rk4_workspace"
 STAGES = ("Pointcloud", "Cluster", "Estimation", "InterpSolver")
+# Cache identity for Python's stage-file conversions. Bump this only when the
+# conversion semantics change; scheduler/skip-message edits must keep old
+# reconstruction outputs reusable.
+WORKSPACE_DATA_CACHE_ID = "f6d074b70adb5a128b4125f6013bbe051e21bd81a788e32b6a702a05155bea97"
 PARAMS = {"PadParameters", "GetParameters", "FribParameters", "DetectorParameters", "ClusterParameters", "OverlapJoinParameters", "EstimateParameters", "SolverParameters"}
 
 def say(text):
@@ -293,8 +297,9 @@ def input_id(path, manifest):
 
 def binary_id():
     result = {}
-    for p in (ENGINE, BIN / "rk4_waveform", BIN / "librk4.so", Path(__file__)):
+    for p in (ENGINE, BIN / "rk4_waveform", BIN / "librk4.so"):
         result[str(p)] = hashlib.sha256(p.read_bytes()).hexdigest()
+    result[str(Path(__file__))] = WORKSPACE_DATA_CACHE_ID
     return result
 
 def phase_config(cfg, stage):
@@ -342,6 +347,7 @@ def run_pipeline(args, scratch):
     except BlockingIOError: raise RuntimeError("此 workspace 的同一 run 正在运行")
     cfg["run.number"] = args.run
     cfg["run.threads"] = args.threads
+    skip_missing = truth(cfg.get("run.skip_missing", True))
     cfg.setdefault("cluster.use_hdbscan", "true")
     cfg.setdefault("peaks.dither_seed", 20261026)
     if args.waveform_fit is not None:
@@ -367,13 +373,18 @@ def run_pipeline(args, scratch):
     for stage in selected_stages:
         i = STAGES.index(stage)
         inputs = []
-        if stage == "Pointcloud":
-            raw = raw_path_for_run(args.run, args, cfg, Path(args.config))
-            if not raw.is_file(): raise FileNotFoundError(f"找不到原始数据 {raw}；使用 --trace-dir 或 --input")
-            inputs.append(raw)
-        else:
-            inputs.append(Path(args.input).expanduser().resolve() if i == first_index and args.input else existing(workspace, args.run, STAGES[i-1], cfg, args.format, manifest))
-            if stage == "InterpSolver": inputs.insert(0, Path(args.clusters).expanduser().resolve() if args.clusters else existing(workspace, args.run, "Cluster", cfg, args.format, manifest))
+        try:
+            if stage == "Pointcloud":
+                raw = raw_path_for_run(args.run, args, cfg, Path(args.config))
+                if not raw.is_file(): raise FileNotFoundError(f"找不到原始数据 {raw}；使用 --trace-dir 或 --input")
+                inputs.append(raw)
+            else:
+                inputs.append(Path(args.input).expanduser().resolve() if i == first_index and args.input else existing(workspace, args.run, STAGES[i-1], cfg, args.format, manifest))
+                if stage == "InterpSolver": inputs.insert(0, Path(args.clusters).expanduser().resolve() if args.clusters else existing(workspace, args.run, "Cluster", cfg, args.format, manifest))
+        except FileNotFoundError as exc:
+            if not skip_missing: raise
+            say(f"跳过 Run {args.run:04d}：{exc}")
+            return False
         output = stage_path(workspace, args.run, stage, cfg, args.format)
         phase_settings = phase_config(cfg, stage)
         # Custom map contents matter; temporary staging directory names do not.
@@ -431,6 +442,7 @@ def run_pipeline(args, scratch):
     # Keep effective configuration reviewable after temporary data are cleaned.
     write_config(hidden / f"run_{args.run:04d}_config.cfg", {k: v for k, v in cfg.items() if k != "detector.pad_dir" or not str(v).startswith(str(scratch))})
     say(f"完成阶段 {', '.join(selected_stages)}，本次 {invocation['wall_seconds']:.3f} s；时间记录：{hidden / f'run_{args.run:04d}_last_timing.json'}")
+    return True
 
 def parser():
     p = argparse.ArgumentParser(
@@ -598,10 +610,11 @@ def main():
         hidden = workspace / ".spyralpp"
         hidden.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix=f"config_{run:04d}_", dir=hidden) as temp:
-            run_pipeline(args, Path(temp))
-        processed += 1
+            completed = run_pipeline(args, Path(temp))
+        if completed: processed += 1
+        else: skipped += 1
     if len(runs) > 1 or skipped:
-        say(f"Run 区间完成：处理 {processed} 个，跳过 {skipped} 个不存在的 run。")
+        say(f"Run 区间完成：处理 {processed} 个，跳过 {skipped} 个缺少输入的 run。")
 
 if __name__ == "__main__":
     try: main()
