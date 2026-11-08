@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import shlex
 import signal
 import subprocess
 import sys
@@ -264,6 +265,19 @@ def csv_to_parquet(path, output, stage):
     table = pl.read_csv(path, schema_overrides={name: types[kind] for name, kind in schema(stage)}, null_values=["nan", "NaN"])
     table.write_parquet(output, compression="zstd")
 
+def require_polars():
+    try:
+        import polars  # noqa: F401
+    except ImportError as exc:
+        install = (
+            f"{shlex.quote(sys.executable)} -m pip install --user -r "
+            f"{shlex.quote(str(PROJECT / 'requirements.txt'))}"
+        )
+        raise RuntimeError(
+            f"Parquet 阶段需要 Polars，但当前 Python ({sys.executable}) 未安装。\n"
+            f"请先运行：{install}"
+        ) from exc
+
 def to_native(path, stage, scratch):
     if path.suffix != ".parquet": return path
     csv_path = scratch / f"input_{stage}.csv"
@@ -484,6 +498,7 @@ def main():
         args = p.parse_args(sys.argv[2:]); args.output.parent.mkdir(parents=True, exist_ok=True)
         allowed = (".root", ".h5", ".hdf5") if args.stage in STAGES[:2] else (".root", ".parquet")
         if args.input.suffix not in allowed or args.output.suffix not in allowed: raise ValueError(f"{args.stage} 支持 {allowed}")
+        if args.input.suffix == ".parquet" or args.output.suffix == ".parquet": require_polars()
         if args.output.exists() and not args.force: raise ValueError("输出已存在；需要覆盖时加 --force")
         if args.input.resolve() == args.output.resolve(): raise ValueError("转换输入与输出必须不同")
         with tempfile.TemporaryDirectory(prefix=".spyralpp-export-", dir=args.output.parent) as temp:
@@ -575,6 +590,12 @@ def main():
         args.enabled_stages = STAGES[STAGES.index(first):STAGES.index(last) + 1]
     args.start, args.to = args.enabled_stages[0], args.enabled_stages[-1]
     if any(run < 0 for run in runs): cli.error("run 号不能为负")
+    parquet_input = any(Path(value).suffix == ".parquet" for value in (args.input, args.clusters) if value)
+    parquet_output = args.format == "python" and any(
+        stage in args.enabled_stages for stage in ("Estimation", "InterpSolver")
+    )
+    if parquet_input or parquet_output:
+        require_polars()
     args.config = str(config_path)
     if args.workspace is None:
         args.workspace = str(config_values.get("output.workspace", "workspace"))
