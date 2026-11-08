@@ -1,0 +1,100 @@
+{
+  "repository": "https://github.com/numpy/x86-simd-sort",
+  "commit": "9a1b616d5cd4eaf49f7664fb86ccc1d18bad2b8d",
+  "numpy_version": "v2.1.3",
+  "purpose": "Match NumPy argsort ordering of equal HDBSCAN MST distances",
+  "files": [
+    {
+      "path": "LICENSE.md",
+      "sha": "3e32165ed474ee2b9877a6716beceb0271643b5a"
+    },
+    {
+      "path": "src/avx2-32bit-half.hpp",
+      "sha": "9100cbbc6491e18470a45c5f83d2869d85b4ce15"
+    },
+    {
+      "path": "src/avx2-32bit-qsort.hpp",
+      "sha": "56ffc23260481f9659bc96ec7f5ea447b17f84cc"
+    },
+    {
+      "path": "src/avx2-64bit-qsort.hpp",
+      "sha": "d8b094df282b6659491d4ca43c14f613bc3e6f0f"
+    },
+    {
+      "path": "src/avx2-emu-funcs.hpp",
+      "sha": "a30da7cca23cff4ce969380ae4c492055c4759b5"
+    },
+    {
+      "path": "src/avx512-16bit-common.h",
+      "sha": "76db872ee60ea0032d2b8640b90f38381b381c14"
+    },
+    {
+      "path": "src/avx512-16bit-qsort.hpp",
+      "sha": "18595ac15dde5068f8b2621c2bacfbad309a4ffd"
+    },
+    {
+      "path": "src/avx512-32bit-qsort.hpp",
+      "sha": "eeaba51cc1fe4092bc99d32d68a22931a753d1f2"
+    },
+    {
+      "path": "src/avx512-64bit-argsort.hpp",
+      "sha": "3a475da8b94967c76e6c509dc4e059ea74d9219b"
+    },
+    {
+      "path": "src/avx512-64bit-common.h",
+      "sha": "689c317f67f573682318868727fe7e4291078bc3"
+    },
+    {
+      "path": "src/avx512-64bit-qsort.hpp",
+      "sha": "1d15ef55ef0e94635e5ad0327f6ab1ecc0c309ca"
+    },
+    {
+      "path": "src/avx512fp16-16bit-qsort.hpp",
+      "sha": "6d2cca6b7e3fdfaae76ddd3805a793a3f812d8c2"
+    },
+    {
+      "path": "src/x86simdsort-static-incl.h",
+      "sha": "52dde7b37f17ac7eb794e1c44d750af9335136e5"
+    },
+    {
+      "path": "src/xss-common-argsort.h",
+      "sha": "4fa5041a88309a68e611db6fff238a0bc183f6f9"
+    },
+    {
+      "path": "src/xss-common-comparators.hpp",
+      "sha": "bd742cd4d2186afba7526ab54b3381fa17f25c6e"
+    },
+    {
+      "path": "src/xss-common-includes.h",
+      "sha": "83a54716a32a0edb541c60067e1620825eb24b18"
+    },
+    {
+      "path": "src/xss-common-keyvaluesort.hpp",
+      "sha": "e6fecc8e35847ff14e0332d8e38b06e0de3c11bd"
+    },
+    {
+      "path": "src/xss-common-qsort.h",
+      "sha": "640119419fc843fb7b1567fb702ce9ffdb90388e"
+    },
+    {
+      "path": "src/xss-custom-float.h",
+      "sha": "5fd973a75fcc009d4472e5ccf250b9cb53240064"
+    },
+    {
+      "path": "src/xss-network-keyvaluesort.hpp",
+      "sha": "3cb30378a6816abb73310883820af8a03ec9e977"
+    },
+    {
+      "path": "src/xss-network-qsort.hpp",
+      "sha": "0c1d1d8ae08679c3c00fd31b27c935c9b6f1a953"
+    },
+    {
+      "path": "src/xss-optimal-networks.hpp",
+      "sha": "e722b1f12331245878add2c94d7526b34286bcfe"
+    },
+    {
+      "path": "src/xss-pivot-selection.hpp",
+      "sha": "6ce0b887c19a51b0351a51607dcd3682548f9126"
+    }
+  ]
+}

@@ -1,0 +1,119 @@
+#!/bin/bash
+#----------------------------------------------------------------------
+# SpyralPP 一条命令跑完（对应 Spyral 的 `spyral config.yaml`）
+#
+#   scripts/spyralpp <config> --input run_XXXX.h5 [选项]
+#   scripts/spyralpp <config> --clouds clouds.root [选项]
+#
+# 选项：
+#   --input <file.h5>    原始 GET/merger 波形文件（先波形->点云）
+#   --clouds <file.root> 已有想点云（跳过波形转换）
+#   --out <dir>          输出目录                默认 ./output
+#   --tag <name>         输出名前缀（run 号）     默认取输入文件名
+#   --events <N>         只处理前 N 个事件
+#   --threads <N>        线程数（两个阶段都用）
+#   --shards <N>         重建分片数
+#   --fitter <m|k>       minuit / kalman
+#
+# 配置既可以用本项目的 .cfg（[section] + key = value），也可以直接用 Spyral 风格的
+# YAML（Detector: / Get: / Cluster: / Solver: 嵌套），键名会自动映射。
+#----------------------------------------------------------------------
+set -u
+
+SELF_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+ROOT_DIR=$(cd "$SELF_DIR/.." && pwd)
+BIN=${SPYRALPP_BIN:-$ROOT_DIR/build}
+
+die() { echo "错误：$*" >&2; exit 2; }
+
+usage() {
+    sed -n '3,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    exit 2
+}
+
+cfg=""
+input=""
+clouds=""
+out_dir="./output"
+tag=""
+events=""
+threads=""
+shards="1"
+fitter=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --input)   input=${2:-}; shift 2 ;;
+        --clouds)  clouds=${2:-}; shift 2 ;;
+        --out)     out_dir=${2:-}; shift 2 ;;
+        --tag)     tag=${2:-}; shift 2 ;;
+        --events)  events=${2:-}; shift 2 ;;
+        --threads) threads=${2:-}; shift 2 ;;
+        --shards)  shards=${2:-}; shift 2 ;;
+        --fitter)  fitter=${2:-}; shift 2 ;;
+        -h|--help) usage ;;
+        -*) echo "未知参数 $1" >&2; usage ;;
+        *) cfg=$1; shift ;;
+    esac
+done
+
+[ -n "$cfg" ] || usage
+[ -f "$cfg" ] || die "配置文件不存在：$cfg"
+[ -x "$BIN/rk4_analyze" ] || die "找不到 $BIN/rk4_analyze（先构建）"
+
+mkdir -p "$out_dir"
+
+# 输出名前缀
+if [ -z "$tag" ]; then
+    if [ -n "$input" ]; then
+        tag=$(basename "$input")
+        tag=${tag%.*}
+    elif [ -n "$clouds" ]; then
+        tag=$(basename "$clouds")
+        tag=${tag%.*}
+    else
+        tag="run"
+    fi
+fi
+
+# 线程/分片环境变量
+[ -n "$threads" ] && export SPYRALPP_THREADS=$threads
+
+cloud_path="$clouds"
+if [ -z "$cloud_path" ]; then
+    [ -n "$input" ] || die "要么给 --input <h5>，要么给 --clouds <root>"
+    cloud_path="$out_dir/${tag}_cloud.root"
+    echo "[1/2] 波形 -> 点云：$input"
+    args=("$cfg" "$input" "$cloud_path")
+    [ -n "$events" ] && args+=("$events")
+    [ -n "$threads" ] && args+=("$threads")
+    "$BIN/rk4_waveform" "${args[@]}" || die "波形转换失败"
+fi
+
+echo "[2/2] 重建：$cloud_path"
+fit_path="$out_dir/${tag}_fit.root"
+if [ "$shards" -gt 1 ] 2>/dev/null; then
+    i=0
+    parts=()
+    while [ "$i" -lt "$shards" ]; do
+        part="$out_dir/${tag}_fit_shard_$i.root"
+        parts+=("$part")
+        if [ "$i" -eq 0 ]; then
+            "$BIN/rk4_analyze" "$cloud_path" "$part" "$cfg" "$i" "$shards" || die "重建失败（分片 $i）"
+        else
+            "$BIN/rk4_analyze" "$cloud_path" "$part" "$cfg" "$i" "$shards" &
+        fi
+        i=$((i + 1))
+    done
+    wait
+    "$BIN/rk4_merge" "$fit_path" "${parts[@]}" || die "合并失败"
+else
+    "$BIN/rk4_analyze" "$cloud_path" "$fit_path" "$cfg" || die "重建失败"
+fi
+
+echo
+echo "完成："
+echo "  点云：$cloud_path"
+echo "  拟合：$fit_path"
+[ -f "${fit_path}_stages.root" ] && echo "  阶段：${fit_path}_stages.root"
+[ -f "${cloud_path}_peaks.root" ] && echo "  峰参数：${cloud_path}_peaks.root"

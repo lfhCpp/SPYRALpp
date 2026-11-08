@@ -1,0 +1,62 @@
+# Spyral 风格的 YAML 配置（本项目可以直接读；键名会自动映射到内部键）
+#
+#   scripts/spyralpp configs/spyral_example.yaml --input run_0151.h5 --events 200 --threads 8
+#
+# 单位沿用 Spyral：detector_length 用 mm，electric_field 用 V/m，
+# sampling_rate 用 MHz、peaking_time 用 ns，cluster radius 用 mm。
+
+Detector:
+  magnetic_field: 2.85        # T（真实数据手性不对时改 -2.85）
+  electric_field: 55000       # V/m；Run 0151 / 已验证生产默认
+  detector_length: 1000       # mm
+  beam_region_radius: 25      # mm；Run 0151 local.cfg
+  small_pad_radius: 152       # mm；电荷积分边界
+  micromegas_time_bucket: 26
+  window_time_bucket: 336
+  get_frequency: 3.125        # MHz；Run 0151 配置，320 ns/TB
+
+Get:
+  sampling_rate: 3.125        # MHz；Run 0151 配置，320 ns/TB
+  peaking_time: 1000          # ns
+  baseline_window_scale: 10
+  peak_separation: 50
+  peak_prominence: 20
+  peak_max_width: 50
+  peak_threshold: 40
+
+Cluster:
+  use_hdbscan: true
+  min_points: 3
+  min_cloud_size: 50          # 事件点数门槛
+  min_cluster_size: 5         # Run 0151 local baseline
+  min_size_scale_factor: 0.05
+  hdbscan_min_samples: 3
+  hdbscan_z_scale: 0.584
+  cluster_selection_epsilon: 10
+  hdbscan_allow_single: false
+  hdbscan_max_points: 0       # 无限制，超限不会自动换算法
+  overlap_min_cluster_size: 15
+  overlap_ratio: 0.25
+  outlier_scale_factor: 0.05
+
+Estimate:
+  method: reinsch
+  smoothing_factor: 100      # 等价于 estimate.reinsch_lambda；z 使用 mm
+  min_total_trajectory_points: 30
+
+Solver:
+  interp_ke_min: 0.1
+  interp_ke_max: 70
+  interp_ke_bins: 256
+  interp_polar_min: 2
+  interp_polar_max: 88
+  interp_polar_bins: 129
+  n_time_steps: 400
+  dt: 3.0e-10              # 0.3 ns steps, about a 120 ns trajectory window
+  minuit_sort_candidates: true
+  minuit_centered_azimuth_bounds: false
+  fit_method: minuit          # minuit | kalman
+
+Output:
+  hdf5: 0
+  stages: 0

@@ -1,0 +1,54 @@
+# Build products and local outputs
+/build/
+**/build/
+/workspace/
+/output/
+/results/
+**/results/
+/experimental/
+/extern/hdf5/
+
+# Machine-specific run configurations and inputs
+/configs/local.cfg
+/configs/local_12Be.cfg
+/configs/runs.txt
+/data/event_waveform.txt
+/scripts/run_local_12Be.sh
+/scripts/reproduce_attpcroot_same_input.py
+/scripts/ablate_kalman_gates.py
+
+# Local validation notes that reference unpublished datasets/results
+/docs/AUDIT_REMAINING.md
+/docs/BE12_KALMAN.md
+/docs/FIDELITY_AUDIT.md
+/docs/HANDOFF.md
+/docs/LEGACY_GUIDE.md
+/docs/PID_OPTIMIZATION.md
+/docs/SMOOTHING_REFERENCES.md
+/docs/WORKSPACE_IMPLEMENTATION.md
+/docs/CONTRIBUTING.md
+
+# Generated detector and reconstruction artifacts
+*.root
+*.h5
+*.hdf5
+*.parquet
+*.npy
+*.npz
+*.cache
+*.log
+*.lock
+*.o
+*.so
+
+# Python and editor state
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.idea/
+.vscode/
+
+# Local reference documents and generated plots
+/*.pdf
+/PID*.png
+/PID*.html

@@ -1,0 +1,21 @@
+# SpyralPP 的 C++ 风格基准：clang-format -style=file
+# 与现有代码保持一致：4 空格缩进、100 列、指针靠类型。
+---
+Language: Cpp
+BasedOnStyle: LLVM
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+PointerAlignment: Left
+AccessModifierOffset: -4
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+SortIncludes: CaseSensitive
+IncludeBlocks: Preserve
+AlignAfterOpenBracket: Align
+BreakBeforeBraces: Attach
+SpaceAfterTemplateKeyword: false
+Standard: c++11
+...

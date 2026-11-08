@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+if [[ -n ${ROOTSYS:-} ]]; then
+    root_prefix=$ROOTSYS
+elif command -v root-config >/dev/null 2>&1; then
+    root_prefix=$(root-config --prefix)
+else
+    root_prefix=""
+fi
+if [[ -n "$root_prefix" && -d "$root_prefix/lib" ]]; then
+    export LD_LIBRARY_PATH="$root_prefix/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+elif [[ -n "$root_prefix" && -d "$root_prefix/lib64" ]]; then
+    export LD_LIBRARY_PATH="$root_prefix/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
+python_bin=${SPYRALPP_PYTHON:-python3}
+export SPYRALPP_PROG=spyralpp
+export POLARS_MAX_THREADS=${POLARS_MAX_THREADS:-1}
+export OPENBLAS_NUM_THREADS=1
+export OMP_NUM_THREADS=1
+exec "$python_bin" "$project_dir/python/workspace.py" "$@"

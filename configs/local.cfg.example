@@ -1,0 +1,85 @@
+# Copy to configs/local.cfg and set paths for your data and analysis.
+
+[pipeline]
+pointcloud = true
+cluster = true
+estimation = true
+interp_solver = false
+
+[run]
+start = 151
+end = 151
+skip_missing = true
+threads = 1
+
+[input]
+trace_dir = /path/to/12Be
+
+[output]
+workspace = workspace
+format = python
+
+[pointcloud]
+waveform_fit = false
+
+[detector]
+bfield_t = 2.85
+efield_vm = 55000
+length_m = 1
+beam_region_radius = 25
+micromegas_edge = 26
+windows_edge = 336
+clock_mhz = 3.125
+
+[peaks]
+baseline_scale = 10
+separation = 50
+prominence = 20
+max_width = 50
+threshold = 40
+
+[frib]
+baseline_scale = 100
+separation = 50
+prominence = 20
+max_width = 500
+threshold = 100
+ic_delay = 1100
+ic_multiplicity = 1
+
+[cluster]
+use_hdbscan = true
+min_cloud_size = 50
+min_points = 3
+min_cluster_size = 5
+min_size_scale_factor = 0.05
+cluster_selection_epsilon = 10
+overlap_min_cluster_size = 15
+overlap_ratio = 0.25
+outlier_scale_factor = 0.05
+
+[estimate]
+min_total_trajectory_points = 30
+reinsch_lambda = 100
+
+[solver]
+# Optional: set these paths to use an external target and PID cut.
+# gas_data_path = /path/to/target.json
+# particle_id_filename = /path/to/pid_gate.json
+ic_min_val = 500
+ic_max_val = 800
+fitter = minuit
+kalman_hypotheses = p,d,t,he3,alpha
+kalman_bfield_sign = -1
+kalman_z_pad_plane_mm = 1000
+kalman_min_ke_mev = 0.01
+ke_min = 0.1
+ke_max = 70
+ke_bins = 256
+polar_min = 2
+polar_max = 88
+polar_bins = 129
+n_time = 400
+dt = 3e-10
+minuit_sort_candidates = true
+minuit_centered_azimuth_bounds = false

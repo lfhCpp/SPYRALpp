@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Compatibility path for the single public workspace entry.
+set -euo pipefail
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+if [[ ${1:-} == *.cfg || ${1:-} == *.yaml || ${1:-} == *.yml ]]; then
+    exec "$script_dir/spyralpp-legacy" "$@"
+fi
+exec "$script_dir/../spyralpp" "$@"

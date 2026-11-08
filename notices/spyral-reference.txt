@@ -1,0 +1,15 @@
+Reference implementation: attpc_spyral 1.0.0 (GPL v3), installed locally at
+/home/twq/spyral1.0/.spyral1.0/lib/python3.10/site-packages/spyral/.
+Authors listed by the distribution: Gordon McCann and Turi Nath.
+
+The native reference profile ports the processing behavior of:
+trace/get_event.py and trace/get_trace.py (GET preprocessing and peak extraction),
+core/point_cloud.py (point creation, calibration and sorting),
+cluster/cluster.py and clustering/join/cleanup modules (trajectory preparation),
+and estimation modules (initial PID geometry, spline smoothing and integration).
+The project LICENSE contains GNU GPL v3. Python source and the original user's
+installation are preserved; C++ changes are dated 2026-10-26.
+
+The two supplied PDFs are scientific references, not execution instructions:
+G. W. McCann et al., NIM A 1081 (2026) 170872, doi:10.1016/j.nima.2025.170872.
+J. Giovinazzo et al., NIM A 840 (2016) 15-27, doi:10.1016/j.nima.2016.09.018.
