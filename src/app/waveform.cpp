@@ -28,6 +28,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <deque>
@@ -175,6 +176,8 @@ int main(int argc, char** argv) {
     std::mutex rmtx;
     std::mutex progress_mtx;
     int completed_events = 0;
+    std::atomic<uint64_t> worker_idle_ns{0};
+    std::atomic<uint64_t> build_ns{0};
     std::condition_variable qcv;
     std::condition_variable qfull;
     std::deque<Item> queue;
@@ -204,7 +207,14 @@ int main(int argc, char** argv) {
                 Item item;
                 {
                     std::unique_lock<std::mutex> lk(qmtx);
-                    qcv.wait(lk, [&] { return cancelled.load() || reading_done || !queue.empty(); });
+                    if (queue.empty() && !cancelled.load() && !reading_done) {
+                        const auto idle_start = std::chrono::steady_clock::now();
+                        qcv.wait(lk, [&] { return cancelled.load() || reading_done || !queue.empty(); });
+                        worker_idle_ns.fetch_add(static_cast<uint64_t>(
+                            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                std::chrono::steady_clock::now() - idle_start).count()),
+                            std::memory_order_relaxed);
+                    }
                     if (cancelled.load()) return;
                     if (queue.empty()) {
                         sat_traces += builder.SaturatedTraces(); // 汇总饱和迹线
@@ -215,7 +225,12 @@ int main(int argc, char** argv) {
                     qfull.notify_one();
                 }
                 PointCloud cloud;
+                const auto build_start = std::chrono::steady_clock::now();
                 const bool ok = builder.Build(item.ev, cloud);
+                build_ns.fetch_add(static_cast<uint64_t>(
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(
+                        std::chrono::steady_clock::now() - build_start).count()),
+                    std::memory_order_relaxed);
                 if (!ok) throw std::runtime_error("Cannot build event " + std::to_string(item.ev.number));
                 if (ok) {
                     {
@@ -252,11 +267,18 @@ int main(int argc, char** argv) {
                 template_fit ? "GET response-template fit (with saturation recovery)" : "baseline peak finder");
     std::fflush(stdout);
     int read = 0;
+    uint64_t reader_ns = 0;
+    uint64_t queue_wait_ns = 0;
     long long first_event=0,last_event=-1;
     TraceEvent tev;
     std::string read_error;
     try {
-    while (!cancelled.load() && read < max_events && reader->ReadNext(tev)) {
+    while (!cancelled.load() && read < max_events) {
+        const auto read_start = std::chrono::steady_clock::now();
+        const bool has_event = reader->ReadNext(tev);
+        reader_ns += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - read_start).count());
+        if (!has_event) break;
         if(read==0)first_event=tev.number;
         last_event=tev.number;
         tev.metadata.orig_run=cfg.GetInt("run.number",-1);
@@ -264,7 +286,10 @@ int main(int argc, char** argv) {
         excluded.push_back(tev.ic_downscale);
         {
             std::unique_lock<std::mutex> lk(qmtx);
+            const auto queue_wait_start = std::chrono::steady_clock::now();
             qfull.wait(lk, [&] { return cancelled.load() || queue.size() < max_inflight; });
+            queue_wait_ns += static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - queue_wait_start).count());
             if (cancelled.load()) break;
             queue.push_back(Item{read, std::move(tev)});
             qcv.notify_one();
@@ -289,6 +314,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    const auto finalize_start = std::chrono::steady_clock::now();
     // 按事件索引排序 → 多线程与单线程输出一致
     std::sort(results.begin(), results.end(),
               [](const Result& a, const Result& b) {
@@ -316,9 +342,10 @@ int main(int argc, char** argv) {
     }
     std::printf("FRIB IC downscale events excluded: %d\n", downscale_count);
 
-    const auto t1 = std::chrono::steady_clock::now();
-    const double seconds = std::chrono::duration<double>(t1 - t0).count();
+    const auto finalize_end = std::chrono::steady_clock::now();
+    const double finalize_seconds = std::chrono::duration<double>(finalize_end - finalize_start).count();
 
+    const auto write_start = std::chrono::steady_clock::now();
     try {
         PointcloudData data;
         data.info.run=cfg.GetInt("run.number",-1);
@@ -332,12 +359,18 @@ int main(int argc, char** argv) {
     } catch(const std::exception& e) {
         std::fprintf(stderr,"Pointcloud write failed: %s\n",e.what());return 1;
     }
+    const auto write_end = std::chrono::steady_clock::now();
+    const double write_seconds = std::chrono::duration<double>(write_end - write_start).count();
+    const double seconds = std::chrono::duration<double>(write_end - t0).count();
 
     std::printf("波形转换完成：读取 %d 个事件，输出 %zu 个点云\n", read, clouds.size());
     std::printf("  线程 %d，耗时 %.2f s（%.2f 事件/s），总点数 %zu（平均 %.0f 点/点云）\n",
                 n_threads, seconds, seconds > 0.0 ? read / seconds : 0.0, total_points,
                 clouds.empty() ? 0.0
                                : static_cast<double>(total_points) / clouds.size());
+    std::printf("  性能拆分：HDF5读取 %.2f s，队列满等待 %.2f s，工作线程空闲合计 %.2f 线程·s，事件构建合计 %.2f 线程·s，整理 %.2f s，写出 %.2f s\n",
+                reader_ns / 1e9, queue_wait_ns / 1e9, worker_idle_ns.load(std::memory_order_relaxed) / 1e9,
+                build_ns.load(std::memory_order_relaxed) / 1e9, finalize_seconds, write_seconds);
     if (template_fit) {
         std::printf("  饱和迹线：%d（用两侧样本/平顶宽度修复幅度）\n", sat_traces.load());
     }
