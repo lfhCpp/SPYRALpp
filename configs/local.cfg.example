@@ -70,7 +70,10 @@ ic_min_val = 500
 ic_max_val = 800
 fitter = minuit
 kalman_hypotheses = p,d,t,he3,alpha
+# Detector fields are positive magnitudes; Spyral 1.0 propagation uses -B/-E.
 kalman_bfield_sign = -1
+kalman_efield_vm = 55000
+kalman_efield_sign = -1
 kalman_z_pad_plane_mm = 1000
 kalman_min_ke_mev = 0.01
 ke_min = 0.1
