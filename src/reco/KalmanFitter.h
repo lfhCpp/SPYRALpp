@@ -147,6 +147,8 @@ public:
     KalmanFitter& operator=(const KalmanFitter&) = delete;
 
     // gas: 靶（决定 dE/dx 的材料与密度）；A/Z: 被拟合粒子的质量数/电荷数
+    // Field arguments are signed propagation fields (Spyral 1.0 uses -B/-E),
+    // not the positive detector magnitudes stored in config files.
     bool Init(const Target& gas, int A, int Z, double mass_mev, double bfield_t,
               double efield_vm, const KalmanConfig& cfg);
 

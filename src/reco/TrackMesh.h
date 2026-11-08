@@ -41,7 +41,8 @@ public:
     TrackMesh(const TrackMesh&) = delete;
     TrackMesh& operator=(const TrackMesh&) = delete;
 
-    // 用给定粒子与靶生成网格
+    // 用给定粒子与靶生成网格。磁场、电场参数传正的配置幅值；传播时
+    // 内部使用 Spyral 1.0 约定的负 B/E 符号。
     bool Build(const MeshConfig& cfg, int A, int Z, const Target& gas,
                double bfield_t, double efield_vm);
 

@@ -309,9 +309,11 @@ void SolveStage(const std::string& cluster_path,const std::string& estimates_pat
         "solver.minuit_sort_candidates",
         cfg.GetBool("solver.experimental_minuit_sort_candidates", true));
     Parallel(selected.size(),cfg,[&]{auto fitter=std::make_shared<TrackFitter>();std::vector<WorkerHypothesis> kalman_fitters;
-        const double kalman_bfield=b*cfg.GetDouble("solver.kalman_bfield_sign",1.0);
-        const double kalman_efield=cfg.GetDouble("solver.kalman_efield_vm",0.0)*
-                                   cfg.GetDouble("solver.kalman_efield_sign",1.0);
+        // Detector config stores positive field magnitudes. Spyral 1.0's
+        // propagation convention applies both fields with negative signs.
+        const double kalman_bfield=b*cfg.GetDouble("solver.kalman_bfield_sign",-1.0);
+        const double kalman_efield=cfg.GetDouble("solver.kalman_efield_vm",e)*
+                                   cfg.GetDouble("solver.kalman_efield_sign",-1.0);
         if(kalman){for(const auto& spec:hypothesis_specs){auto kf=std::make_shared<KalmanFitter>();
                 Need(kf->Init(gas,spec.A,spec.Z,spec.mass,kalman_bfield,kalman_efield,kc),"Kalman initialization failed for "+spec.label);
                 std::shared_ptr<KalmanFitter> recovery;

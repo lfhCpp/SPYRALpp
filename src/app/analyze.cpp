@@ -499,9 +499,12 @@ int main(int argc, char** argv) {
         if (!use_kalman && !fitter.Init(&mesh, mass, particle_Z))
             throw std::runtime_error("Track fitter initialization failed");
         KalmanFitter kfitter;
-        const double kalman_bfield = bfield * cfg.GetDouble("solver.kalman_bfield_sign", 1.0);
+        // Detector config stores positive field magnitudes; match Spyral 1.0.
+        const double kalman_bfield = bfield * cfg.GetDouble("solver.kalman_bfield_sign", -1.0);
+        const double kalman_efield = cfg.GetDouble("solver.kalman_efield_vm", efield) *
+                                     cfg.GetDouble("solver.kalman_efield_sign", -1.0);
         if (use_kalman &&
-            !kfitter.Init(gas, particle_A, particle_Z, mass, kalman_bfield, efield, kalman_cfg)) {
+            !kfitter.Init(gas, particle_A, particle_Z, mass, kalman_bfield, kalman_efield, kalman_cfg)) {
             throw std::runtime_error("Kalman fitter initialization failed");
         }
 

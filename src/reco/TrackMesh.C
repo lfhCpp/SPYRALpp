@@ -19,7 +19,7 @@
 namespace rk4 {
 namespace {
 // Increment when the propagator/material physics used to build a mesh changes.
-constexpr int PhysicsRevision=1;
+constexpr int PhysicsRevision=2;
 bool CountFor(const MeshConfig& c,size_t& count) {
     if(c.ke_bins<2||c.polar_bins<2||c.n_time<2||!(c.ke_min>0)||!(c.ke_max>c.ke_min)||
        !(c.polar_min>=0)||!(c.polar_max<=180)||!(c.polar_max>c.polar_min)||!(c.dt>0)||
@@ -67,7 +67,11 @@ bool TrackMesh::Build(const MeshConfig& cfg,int A,int Z,const Target& gas,double
     composition_=gas.compound();
     if(!Utils::validCompound(composition_))return false;
     ParticleDynamics dynamics;
-    dynamics.ConfigureTarget(composition_,gas.density());dynamics.ConfigureFields(b,e);
+    dynamics.ConfigureTarget(composition_,gas.density());
+    // Match Spyral 1.0's mesh convention: TrackGenerator stores positive field
+    // magnitudes in metadata, then passes -B and -E to the equation of motion.
+    // The detector config continues to use positive magnitudes at this API.
+    dynamics.ConfigureFields(-b,-e);
     dynamics.SetStopZ(-.5,1.5);dynamics.SetStopRho(.5);dynamics.SetParticle(A,Z);
     try {data_.assign(count,0.0);}catch(const std::exception&){return false;}
     std::vector<TrackPoint> track;const double vertex[3]={0,0,cfg_.z_ref};
