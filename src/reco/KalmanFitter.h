@@ -38,8 +38,8 @@
 namespace rk4 {
 
 //----------------------------------------------------------------------
-// 参数（默认值取自 a1954 12Be 分析 guide 的 UKF 一节：
-// measSigma 0.5 mm、momSigmaFrac 0.1、能损 straggling 关闭）
+// 参数（量测/动量先验与 a1954 12Be 分析 guide 一致；UKF 权重和最终质量门限
+// 经 Run 0124–0226 的现有 12Be 数据验证）
 //----------------------------------------------------------------------
 struct KalmanConfig {
     // 初始化
@@ -79,14 +79,16 @@ struct KalmanConfig {
     double step_mm = 0.1;         // 对齐 AtRK4Stepper 的 0.1 mm 步长
     int max_steps = 30000;        // 单次传播上限；覆盖典型无 pad 区后的螺旋接续
     double min_ke_mev = 0.01;     // ATTPCROOT AtPropagator 的停止阈值
-    double chi2_max = 0.0;        // > 0 时 χ²/ndf 超过即判失败
+    double chi2_max = 25.0;       // final χ²/ndf gate; enables guarded coverage recovery
     double innovation_chi2_max = 25.0; // Optional per-hit outlier gate; recovery pass can disable it.
     double min_measurement_fraction = 0.20; // 至少保留五分之一的有效测量，拒绝不完整拟合
     int iterations = 1;              // >1 enables ATTPCROOT-style smoothed-reference passes
     double ref_covariance_inflation = 4.0; // Keep reference-track re-pass covariance conservative
 
     // UKF 权重参数（alpha, beta, kappa）
-    double alpha = 1.0e-3;
+    // Avoid near-singular sigma-point weights for branch-sensitive helix
+    // propagation; alpha=1e-3 made the central weight about -1e6 (n=7).
+    double alpha = 0.1;
     double beta = 2.0;
     double kappa = 0.0;
 };

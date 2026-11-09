@@ -1128,34 +1128,28 @@ struct KalmanFitter::Impl {
             });
         }
         if (cfg.z_pad_plane_mm > 0.0 && meas.size() > 1) {
-            // ROOT's Be12 path starts at the largest digi-z cluster and then
-            // walks to the nearest remaining cluster. Coordinates are already
-            // reflected above, so the seed is minimum lab-z here.
-            size_t seed = 0;
-            for (size_t i = 1; i < meas.size(); ++i)
-                if (meas[i].point.z < meas[seed].point.z) seed = i;
-            std::vector<FitMeasurement> ordered;
-            std::vector<uint8_t> used(meas.size(), 0);
-            ordered.reserve(meas.size());
-            ordered.push_back(meas[seed]);
-            used[seed] = 1;
-            while (ordered.size() < meas.size()) {
-                const auto& prev = ordered.back().point;
-                size_t best = meas.size();
-                double best_d2 = std::numeric_limits<double>::infinity();
-                for (size_t i = 0; i < meas.size(); ++i) {
-                    if (used[i]) continue;
-                    const double dx = meas[i].point.x - prev.x;
-                    const double dy = meas[i].point.y - prev.y;
-                    const double dz = meas[i].point.z - prev.z;
-                    const double d2 = dx * dx + dy * dy + dz * dz;
-                    if (d2 < best_d2) { best_d2 = d2; best = i; }
-                }
-                if (best == meas.size()) break;
-                used[best] = 1;
-                ordered.push_back(meas[best]);
+            // z_pad_plane_mm reflects digi-z into the lab frame. The drift
+            // coordinate is monotonic along a physical track, while a greedy
+            // nearest-neighbour walk can jump to an adjacent helix turn where
+            // turns overlap in x-y. Estimation.direction is defined in digi-z,
+            // so reflecting z reverses that ordering. Follow the fitted
+            // physical direction; this also starts near the estimated vertex.
+            bool lab_z_ascending = guess.direction == 1;
+            if (guess.direction != 0 && guess.direction != 1 &&
+                std::isfinite(guess.vertex_z)) {
+                const double vertex_lab_z = cfg.z_pad_plane_mm - guess.vertex_z;
+                const auto [min_it, max_it] = std::minmax_element(
+                    meas.begin(), meas.end(), [](const FitMeasurement& a, const FitMeasurement& b) {
+                        return a.point.z < b.point.z;
+                    });
+                lab_z_ascending = std::abs(min_it->point.z - vertex_lab_z) <=
+                                  std::abs(max_it->point.z - vertex_lab_z);
             }
-            meas.swap(ordered);
+            std::stable_sort(meas.begin(), meas.end(), [lab_z_ascending](const FitMeasurement& a,
+                                                                         const FitMeasurement& b) {
+                return lab_z_ascending ? a.point.z < b.point.z : a.point.z > b.point.z;
+            });
+            direction_known = true;
         }
         std::vector<CloudPoint> spaced;
         std::vector<MatZ> measurement_covariances;
@@ -1444,13 +1438,19 @@ struct KalmanFitter::Impl {
             double path_mm = 0.0;
             const double measured_gap_mm = std::abs(hits[k].z - hits[k - 1].z);
             const bool continuing_gap = gap_pending;
-            bool use_z_plane = direction_known && cfg.z_pad_plane_mm <= 0.0 &&
-                               (gap_pending || measured_gap_mm > 80.0);
-            if (cfg.verbose && use_z_plane)
+            const bool be12_z_order = direction_known && cfg.z_pad_plane_mm > 0.0;
+            bool use_z_plane = be12_z_order ||
+                (direction_known && cfg.z_pad_plane_mm <= 0.0 &&
+                 (gap_pending || measured_gap_mm > 80.0));
+            if (cfg.verbose && be12_z_order)
+                std::fprintf(stderr, "[kalman] propagate Be12 measurement plane k=%d/%d dz=%.1f mm theta=%.2f deg\n",
+                             k, n, hits[k].z - hits[k - 1].z,
+                             x[4] * Units::RAD2DEG);
+            else if (cfg.verbose && use_z_plane)
                 std::fprintf(stderr, "[kalman] bridge uninstrumented z gap k=%d/%d gap=%.1f mm theta=%.2f deg\n",
                              k, n, measured_gap_mm, x[4] * Units::RAD2DEG);
             bool mean_ok = use_z_plane
-                ? prop.ToZPlane(x, 1.0, point, mean_prop, &path_mm)
+                ? prop.ToZPlane(x, 1.0, point, mean_prop, &path_mm, be12_z_order)
                 : prop.ToPoint(x, 1.0, point, mean_prop, &path_mm);
             // On a curling track the tangent-plane closest-approach test can
             // select a later helix turn even when the measured z is only a
@@ -1497,7 +1497,8 @@ struct KalmanFitter::Impl {
                     VecX ref_prop;
                     double ref_path_mm = 0.0;
                     bool ref_ok = use_z_plane
-                        ? prop.ToZPlane(ref_state, 1.0, point, ref_prop, &ref_path_mm)
+                        ? prop.ToZPlane(ref_state, 1.0, point, ref_prop, &ref_path_mm,
+                                        be12_z_order)
                         : prop.ToPoint(ref_state, 1.0, point, ref_prop, &ref_path_mm);
                     const double ref_wrong_turn_dz = ref_ok ? ref_prop[2] - hits[k].z : 0.0;
                     if (ref_ok && !use_z_plane && direction_known &&
@@ -1548,12 +1549,13 @@ struct KalmanFitter::Impl {
                 // plane for this z-ordered measurement instead of injecting an
                 // unpropagated sigma point into the weighted transform.
                 const double preferred_path_mm = use_z_plane ? sigma_path_mm : -1.0;
-                bool sigma_ok = prop.ToPlane(xi, v, point, plane_normal, xo,
-                                             preferred_path_mm);
+                bool sigma_ok = use_z_plane
+                    ? prop.ToZPlane(xi, v, point, xo, nullptr, be12_z_order)
+                    : prop.ToPlane(xi, v, point, plane_normal, xo, preferred_path_mm);
                 constexpr double kSigmaWrongTurnZToleranceMm = 20.0;
                 const bool wrong_turn_crossing = sigma_ok && use_z_plane &&
                     std::abs(xo[2] - hits[k].z) > kSigmaWrongTurnZToleranceMm;
-                if (use_z_plane && (!sigma_ok || wrong_turn_crossing))
+                if (use_z_plane && !be12_z_order && (!sigma_ok || wrong_turn_crossing))
                     sigma_ok = prop.ToZPlane(xi, v, point, xo, nullptr, true);
                 if (!sigma_ok || (use_z_plane &&
                     std::abs(xo[2] - hits[k].z) > kSigmaWrongTurnZToleranceMm)) {
@@ -1868,8 +1870,17 @@ struct KalmanFitter::Impl {
 
         out.vx = xv[0];
         out.vy = xv[1];
-        out.vz = xv[2];
-        out.polar = xv[4];
+        if (cfg.z_pad_plane_mm > 0.0) {
+            // Return kinematics in the same coordinates as Pointcloud,
+            // Estimation, and Spyral's Python results. The fitter propagated
+            // in reflected lab-z coordinates above, so undo that reflection
+            // for the vertex and polar angle at the public API boundary.
+            out.vz = cfg.z_pad_plane_mm - xv[2];
+            out.polar = M_PI - xv[4];
+        } else {
+            out.vz = xv[2];
+            out.polar = xv[4];
+        }
         out.azimuthal = xv[5];
         out.ke_vertex = mass * (GammaOfGv(GvFromP(xv[3], mass)) - 1.0);
         out.brho = (xv[3] / 1000.0) / (kBrStiffness * std::abs(Z));
