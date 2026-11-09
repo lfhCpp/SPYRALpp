@@ -107,10 +107,11 @@ waveform / CSV / HDF5 ──► rk4_waveform / rk4_csvtrace ──► clouds.roo
 
 ## ParticleDynamics 的边界
 
-`sim/ParticleDynamics` 只负责：运动方程、RK4 积分、停止条件、靶/核素配置、二体反应与衰变。
+`sim/ParticleDynamics` 保留运动方程、RK4 积分、停止条件、靶/核素配置、能损，以及可复用的二体反应与衰变计算。
 
-文件里另外约 1500 行是遗留的实验分析代码（DWBA/截面/绘图），用 `RK4_WITH_LEGACY_ANALYSIS`
-编译开关隔离，默认不参与构建。默认配置下该编译单元的目标文件从 420 KB 降到 49 KB。
+旧 ROOT 分析接口继续保留，但实现拆到了 `src/analysis/ParticleDynamicsLegacyData.C`
+和 `src/analysis/ParticleDynamicsLegacyKinematics.C`。它们覆盖树分析、背景/峰拟合、参考运动学曲线、DWBA、效率和截面分析；
+只有设置 `SPYRALPP_WITH_LEGACY_ANALYSIS=ON` 才会编译，不进入默认重建链。旧调用代码仍通过 `ParticleDynamics` 接口使用这些方法。
 
 ## 并行模型
 

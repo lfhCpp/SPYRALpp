@@ -89,7 +89,7 @@ message(STATUS "FFTW      : 内置源码 extern/fftw")
 # 选项
 #----------------------------------------------------------------------
 option(SPYRALPP_WITH_HDF5 "启用 HDF5 读写（内置 extern/hdf5）" ON)
-option(SPYRALPP_WITH_LEGACY_ANALYSIS "编译 ParticleDynamics 的遗留分析代码" OFF)
+option(SPYRALPP_WITH_LEGACY_ANALYSIS "编译 src/analysis 下的遗留 ROOT 分析功能" OFF)
 option(SPYRALPP_BUILD_APPS "构建命令行程序" ON)
 option(SPYRALPP_BUILD_EXPERIMENTAL "构建研究用实验程序（需要 experimental/ 源码）" OFF)
 
@@ -134,6 +134,13 @@ add_library(rk4 SHARED
     src/reco/KalmanFitter.C
 )
 
+if(SPYRALPP_WITH_LEGACY_ANALYSIS)
+    target_sources(rk4 PRIVATE
+        src/analysis/ParticleDynamicsLegacyData.C
+        src/analysis/ParticleDynamicsLegacyKinematics.C
+    )
+endif()
+
 target_include_directories(rk4 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${ROOT_INCLUDE_DIRS}
@@ -159,7 +166,7 @@ target_link_libraries(rk4 PUBLIC
 
 if(SPYRALPP_WITH_LEGACY_ANALYSIS)
     target_compile_definitions(rk4 PUBLIC RK4_WITH_LEGACY_ANALYSIS)
-    message(STATUS "Legacy    : 开启")
+    message(STATUS "Legacy    : 开启（analysis/ 独立编译单元）")
 else()
     message(STATUS "Legacy    : 关闭")
 endif()
