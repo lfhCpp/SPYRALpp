@@ -1,7 +1,7 @@
 //----------------------------------------------------------------------
 // rk4_simulate：配置 -> 事件 -> 探测器数字化 -> 点云 + 运动学真值
 //
-// 用法：rk4_simulate <config> <out_clouds.root> [n_events]
+// 用法：rk4_simulate <config> [out_clouds.root] [n_events]
 //----------------------------------------------------------------------
 
 #include "core/Event.h"
@@ -19,6 +19,8 @@
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -43,8 +45,8 @@ static std::string DerivePath(const std::string& path, const std::string& suffix
 }
 
 int main(int argc, char** argv) {
-    if (argc < 3) {
-        std::printf("用法: rk4_simulate <config> <out_clouds.root> [n_events]\n");
+    if (argc < 2) {
+        std::printf("用法: rk4_simulate <config> [out_clouds.root] [n_events]\n");
         return 1;
     }
 
@@ -54,14 +56,43 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    const int n_events = (argc > 3) ? std::atoi(argv[3]) : cfg.GetInt("run.n_events", 100);
+    const int n_events = (argc > 3) ? std::atoi(argv[3])
+        : cfg.GetInt("simulation.events", cfg.GetInt("run.n_events", 100));
+    if (n_events <= 0) {
+        std::fprintf(stderr, "模拟事件数必须大于0\n");
+        return 1;
+    }
+
+    std::string cloud_path = argc > 2 ? argv[2] : cfg.GetString("simulation.output", "");
+    if (cloud_path.empty()) {
+        const std::string workspace = cfg.GetString("output.workspace", "workspace");
+        cloud_path = (std::filesystem::path(workspace) / "Simulation" / "simulated.root").string();
+    }
+    if (cloud_path.size() < 5 || cloud_path.compare(cloud_path.size() - 5, 5, ".root") != 0) {
+        std::fprintf(stderr, "模拟点云输出必须使用 .root 后缀：%s\n", cloud_path.c_str());
+        return 1;
+    }
+    const auto output_parent = std::filesystem::path(cloud_path).parent_path();
+    if (!output_parent.empty()) std::filesystem::create_directories(output_parent);
 
     std::vector<Element> comp;
-    Element element;
-    element.a = cfg.GetInt("gas.a", 1);
-    element.z = cfg.GetInt("gas.z", 1);
-    element.s = cfg.GetDouble("gas.stoich", 2);
-    comp.push_back(element);
+    const int component_count = cfg.GetInt("gas.components", 0);
+    if (component_count > 0) {
+        for (int i = 0; i < component_count; ++i) {
+            const std::string key = "gas.component" + std::to_string(i);
+            Element element;
+            element.a = cfg.GetInt(key + ".a", 0);
+            element.z = cfg.GetInt(key + ".z", 0);
+            element.s = cfg.GetDouble(key + ".s", 0.0);
+            comp.push_back(element);
+        }
+    } else {
+        Element element;
+        element.a = cfg.GetInt("gas.a", 1);
+        element.z = cfg.GetInt("gas.z", 1);
+        element.s = cfg.GetDouble("gas.stoich", 2);
+        comp.push_back(element);
+    }
     GasTarget gas(comp, cfg.GetDouble("gas.pressure_torr", 600.0));
 
     GeneratorConfig g;
@@ -81,7 +112,9 @@ int main(int argc, char** argv) {
     g.rho_sigma_m = cfg.GetDouble("vertex.rho_sigma", 0.007);
 
     KinematicsGenerator generator;
-    if (!generator.Init(g, &gas, static_cast<uint64_t>(cfg.GetInt("run.seed", 1)))) {
+    const uint64_t seed = static_cast<uint64_t>(
+        cfg.GetInt("simulation.seed", cfg.GetInt("run.seed", 1)));
+    if (!generator.Init(g, &gas, seed)) {
         return 1;
     }
 
@@ -101,7 +134,8 @@ int main(int argc, char** argv) {
     if (!simulator.Init(det, &gas)) return 1;
 
     std::vector<int> indices;
-    const std::string mode = cfg.GetString("detector.mode", "ejectile");
+    const std::string mode = cfg.GetString(
+        "simulation.mode", cfg.GetString("detector.mode", "ejectile"));
     if (mode == "all") {
         indices = {2, 3};
     } else {
@@ -135,11 +169,29 @@ int main(int argc, char** argv) {
     };
     std::vector<ThreadResult> results(n_threads);
     std::atomic<int> next_event{0};
+    std::atomic<int> completed_events{0};
+    std::mutex progress_mutex;
+    int last_displayed = 0;
+    const int progress_stride = std::max(1, n_events / 100);
+    auto report_progress = [&]() {
+        const int done = completed_events.fetch_add(1) + 1;
+        if (done != n_events && done % progress_stride != 0) return;
+        std::lock_guard<std::mutex> lock(progress_mutex);
+        if (done <= last_displayed) return;
+        last_displayed = done;
+        constexpr int width = 30;
+        const int filled = width * done / n_events;
+        const std::string bar(static_cast<size_t>(filled), '#');
+        const std::string tail(static_cast<size_t>(width - filled), '-');
+        std::printf("\r模拟进度 [%s%s] %d/%d (%d%%)", bar.c_str(), tail.c_str(), done,
+                    n_events, 100 * done / n_events);
+        if (done == n_events) std::printf("\n");
+        std::fflush(stdout);
+    };
 
     auto worker = [&](unsigned int tid) {
         KinematicsGenerator local_gen;
-        if (!local_gen.Init(g, &gas,
-                            static_cast<uint64_t>(cfg.GetInt("run.seed", 1)) + tid)) {
+        if (!local_gen.Init(g, &gas, seed + tid)) {
             return;
         }
 
@@ -151,21 +203,27 @@ int main(int argc, char** argv) {
             if (idx >= n_events) break;
 
             Event ev;
-            const uint64_t run_seed = static_cast<uint64_t>(cfg.GetInt("run.seed", 1));
-            local_gen.SetEventSeed(run_seed, static_cast<uint64_t>(idx));
-            if (!local_gen.Generate(ev)) continue;
+            local_gen.SetEventSeed(seed, static_cast<uint64_t>(idx));
+            if (!local_gen.Generate(ev)) {
+                report_progress();
+                continue;
+            }
 
             // 每个线程的生成器有自己的 event_id_ 计数器（都从 0 开始。直接用会产生重复 ID。
             // 统一使用第 idx 个请求作为全局事件号，并使用对应的事件随机数子流。
             ev.id = idx;
 
             PointCloud cloud;
-            local_sim.SetEventSeed(run_seed, static_cast<uint64_t>(idx));
+            local_sim.SetEventSeed(seed, static_cast<uint64_t>(idx));
             local_sim.Simulate(ev, cloud, indices);
-            if (cloud.points.empty()) continue;
+            if (cloud.points.empty()) {
+                report_progress();
+                continue;
+            }
 
             results[tid].events.push_back(ev);
             results[tid].clouds.push_back(cloud);
+            report_progress();
         }
     };
 
@@ -203,21 +261,21 @@ int main(int argc, char** argv) {
     events.swap(sorted_events);
     clouds.swap(sorted_clouds);
 
-    const std::string kin_path = DerivePath(argv[2], "_kin");
-    if (!WritePointClouds(argv[2], clouds)) return 1;
+    const std::string kin_path = DerivePath(cloud_path, "_kin");
+    if (!WritePointClouds(cloud_path, clouds)) return 1;
     if (!WriteKinematics(kin_path, events)) return 1;
 
     std::printf("模拟完成：%zu 个事件\n", clouds.size());
-    std::printf("  点云（TTree）：%s\n", argv[2]);
+    std::printf("  点云（TTree）：%s\n", cloud_path.c_str());
     std::printf("  真值（TTree）：%s\n", kin_path.c_str());
 
     // 可选：同时写 HDF5（结构与 attpc_engine 的 SpyralWriter 一致，Python 版 Spyral 可直接读）
-    if (cfg.GetBool("output.hdf5", false)) {
+    if (cfg.GetBool("simulation.hdf5", cfg.GetBool("output.hdf5", false))) {
         if (!Hdf5Available()) {
             std::fprintf(stderr, "该构建未启用 HDF5，跳过 HDF5 输出\n");
         } else {
-            const std::string h5_cloud = DeriveH5Path(argv[2], "_cloud");
-            const std::string h5_kin = DeriveH5Path(argv[2], "_kin");
+            const std::string h5_cloud = DeriveH5Path(cloud_path, "_cloud");
+            const std::string h5_kin = DeriveH5Path(cloud_path, "_kin");
             if (WritePointCloudsHdf5(h5_cloud, clouds)) {
                 std::printf("  点云（HDF5）  ：%s\n", h5_cloud.c_str());
             } else {

@@ -21,6 +21,7 @@ import time
 PROJECT = Path(__file__).resolve().parents[1]
 BIN = Path(os.environ.get("SPYRALPP_BIN", PROJECT / "build"))
 ENGINE = BIN / "rk4_workspace"
+SIMULATOR = BIN / "rk4_simulate"
 STAGES = ("Pointcloud", "Cluster", "Estimation", "InterpSolver")
 # Cache identity for Python's stage-file conversions. Bump this only when the
 # conversion semantics change; scheduler/skip-message edits must keep old
@@ -508,11 +509,63 @@ def run_pipeline(args, scratch):
     say(f"完成阶段 {', '.join(selected_stages)}，本次 {invocation['wall_seconds']:.3f} s；时间记录：{hidden / f'run_{args.run:04d}_last_timing.json'}")
     return True
 
+def simulate_cli(argv):
+    p = argparse.ArgumentParser(
+        prog=f"{os.environ.get('SPYRALPP_PROG', 'spyralpp')} simulate",
+        description="按同一份 SpyralPP 配置生成模拟点云和运动学真值。",
+    )
+    p.add_argument("config", nargs="?", default=str(PROJECT / "configs/local.cfg"))
+    p.add_argument("--events", type=int, help="覆盖 [simulation] events")
+    p.add_argument("--output", help="覆盖 [simulation] output")
+    p.add_argument("--force", action="store_true", help="覆盖已有模拟产物")
+    args = p.parse_args(argv)
+
+    if not ENGINE.is_file(): raise RuntimeError(f"缺少 {ENGINE}，先运行 cmake --build build -j8")
+    if not SIMULATOR.is_file(): raise RuntimeError(f"缺少 {SIMULATOR}，先运行 cmake --build build -j8")
+    config_path = Path(args.config).expanduser().resolve()
+    if config_path.suffix == ".py":
+        raise ValueError("模拟需要 .cfg/.yaml 配置；请使用 configs/local.cfg 或 configs/example.cfg")
+    cfg = read_config_values(config_path)
+
+    try:
+        events = args.events if args.events is not None else int(
+            cfg.get("simulation.events", cfg.get("run.n_events", 100)))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("[simulation] events 必须是正整数") from exc
+    if events < 1: raise ValueError("[simulation] events 必须是正整数")
+
+    configured_output = args.output or cfg.get("simulation.output")
+    if configured_output:
+        output = Path(configured_output).expanduser()
+    else:
+        workspace = Path(cfg.get("output.workspace", "workspace")).expanduser()
+        output = workspace / "Simulation" / "simulated.root"
+    output = output.resolve()
+    if output.suffix != ".root":
+        raise ValueError("模拟点云输出路径需要以 .root 结尾")
+    kin_output = output.with_name(f"{output.stem}_kin.root")
+    existing = [path for path in (output, kin_output) if path.exists()]
+    if existing and not args.force:
+        if len(existing) == 2 and all(path.is_file() and path.stat().st_size > 0 for path in existing):
+            say(f"模拟结果已存在，跳过：{output}（重跑加 --force）")
+            return
+        raise ValueError(f"模拟产物不完整：{', '.join(map(str, existing))}；确认后加 --force 重跑")
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    workspace = Path(cfg.get("output.workspace", "workspace")).expanduser().resolve()
+    log = workspace / ".spyralpp" / f"simulation_{output.stem}.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    command = [str(SIMULATOR), str(config_path), str(output), str(events)]
+    if run_logged(command, log):
+        raise RuntimeError(f"模拟失败，查看日志：{log}\n{log.read_text(encoding='utf-8', errors='replace')[-3500:]}")
+    say(f"模拟日志：{log}")
+
+
 def parser():
     p = argparse.ArgumentParser(
         prog=os.environ.get("SPYRALPP_PROG", "spyralpp"),
         description="SpyralPP：一个 workspace，四个可独立接续的阶段。",
-        epilog="示例：./spyral configs/local.cfg；./spyral 151 --config /path/to/main.py",
+        epilog="示例：./spyral configs/local.cfg；./spyral simulate configs/local.cfg；./spyral 151 --config /path/to/main.py",
     )
     p.add_argument("target", nargs="?", help="run 号或配置文件；配置可包含 run.number 或 run.start/run.end")
     p.add_argument("--run", dest="run_override", type=int, help="强制只处理一个 run，覆盖配置区间")
@@ -552,6 +605,9 @@ def raw_path_for_run(run, args, cfg, config_path):
     return trace_dir / f"run_{run:04d}.h5"
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "simulate":
+        simulate_cli(sys.argv[2:])
+        return
     if not ENGINE.is_file(): raise RuntimeError(f"缺少 {ENGINE}，先运行 cmake --build build -j8")
     if len(sys.argv) > 1 and sys.argv[1] == "export":
         p = argparse.ArgumentParser(description="阶段文件格式互换，无需重算")

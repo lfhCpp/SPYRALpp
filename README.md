@@ -19,7 +19,7 @@ If ROOT is not discoverable, initialize its environment or set `ROOTSYS` / `CMAK
 
 ## Configure and run
 
-Create a local configuration from the portable template, then set the paths for your input data and optional target/PID files:
+Create a local configuration from the portable template, then set the paths for your input data and optional PID file:
 
 ```bash
 cp configs/local.cfg.example configs/local.cfg
@@ -32,6 +32,20 @@ Alternatively, pass the configuration explicitly:
 ```bash
 ./spyral configs/local.cfg
 ```
+
+The same configuration can generate simulated events:
+
+```bash
+./spyral simulate configs/local.cfg
+```
+
+Simulation settings live in `[simulation]`, `[reaction]`, `[beam]`, and
+`[vertex]`. The default output is `workspace/Simulation/simulated.root` plus
+`simulated_kin.root`; `[simulation] output = ...` can select another ROOT file.
+Use `--events N` to override the configured event count and `--force` to
+replace existing outputs. The output directory is created automatically.
+Simulation writes ROOT trees by default; set `simulation.hdf5 = true` for
+additional HDF5 copies.
 
 `configs/local.cfg` is machine-specific and ignored by Git. The example configuration is safe to commit.
 

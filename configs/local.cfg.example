@@ -12,6 +12,12 @@ end = 151
 skip_missing = true
 threads = 1
 
+[simulation]
+events = 100
+seed = 7
+mode = ejectile
+hdf5 = false
+
 [input]
 trace_dir = /path/to/12Be
 
@@ -26,6 +32,26 @@ component0.a = 1
 component0.z = 1
 component0.s = 2
 pressure_torr = 300
+
+[reaction]
+beam_a = 12
+beam_z = 4
+target_a = 1
+target_z = 1
+ejectile_a = 1
+ejectile_z = 1
+
+[beam]
+ke_mev = 150
+ex_centroid = 0
+ex_fwhm = 0
+theta_min = 50
+theta_max = 110
+
+[vertex]
+z_min = 0.05
+z_max = 0.45
+rho_sigma = 0.005
 
 [pointcloud]
 waveform_fit = false
