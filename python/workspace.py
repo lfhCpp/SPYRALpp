@@ -2,6 +2,7 @@
 from __future__ import annotations
 import argparse
 import ast
+import codecs
 import csv
 import fcntl
 import hashlib
@@ -31,17 +32,80 @@ def say(text):
     print(text, flush=True)
 
 def run_logged(command, log):
-    """Keep a child process log while showing its progress in the terminal."""
+    """Keep a child process log and render carriage-return progress in place."""
     process = subprocess.Popen(
         command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, encoding="utf-8", errors="replace", bufsize=1,
+        bufsize=4096,
     )
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+    terminal = sys.stdout.isatty()
+    buffer = []
+    pending_cr = False
+    last_progress = ""
+
+    def show_progress(message):
+        if not terminal:
+            return
+        left = message.find("[")
+        right = message.find("]", left + 1) if left >= 0 else -1
+        if left < 0 or right < 0:
+            sys.stdout.write("\r\033[2K" + message)
+            return
+        bar = message[left + 1:right]
+        filled = bar.find(".")
+        if filled < 0:
+            filled = len(bar)
+        sys.stdout.write(
+            "\r\033[2K" + message[:left + 1] + "\033[32m" + bar[:filled]
+            + "\033[2m" + bar[filled:] + "\033[0m" + message[right:]
+        )
+
     try:
         with open(log, "a", encoding="utf-8") as handle:
-            for line in process.stdout:
-                handle.write(line)
+            def consume(text):
+                nonlocal pending_cr, last_progress
+                for char in text:
+                    if char == "\r":
+                        message = "".join(buffer)
+                        buffer.clear()
+                        handle.write(message + "\n")
+                        handle.flush()
+                        last_progress = message
+                        show_progress(message)
+                        if terminal:
+                            sys.stdout.flush()
+                        pending_cr = True
+                    elif char == "\n":
+                        if pending_cr:
+                            if terminal:
+                                sys.stdout.write("\n")
+                                sys.stdout.flush()
+                            elif "[" in last_progress and "100%" in last_progress:
+                                sys.stdout.write(last_progress + "\n")
+                                sys.stdout.flush()
+                            pending_cr = False
+                        else:
+                            message = "".join(buffer)
+                            buffer.clear()
+                            handle.write(message + "\n")
+                            handle.flush()
+                            sys.stdout.write(message + "\n")
+                            sys.stdout.flush()
+                    else:
+                        pending_cr = False
+                        buffer.append(char)
+
+            while True:
+                chunk = process.stdout.read1(4096)
+                if not chunk:
+                    break
+                consume(decoder.decode(chunk))
+            consume(decoder.decode(b"", final=True))
+            if buffer:
+                message = "".join(buffer)
+                handle.write(message)
                 handle.flush()
-                sys.stdout.write(line)
+                sys.stdout.write(message)
                 sys.stdout.flush()
         return process.wait()
     except KeyboardInterrupt:

@@ -40,8 +40,15 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         ++done_;
         if(done_%interval_!=0&&done_!=total_)return;
-        std::cout<<stage_<<" progress: "<<done_<<"/"<<total_<<' '<<unit_
-                 <<" ("<<(done_*100/total_)<<"%)\n"<<std::flush;
+        constexpr size_t bar_width=24;
+        const size_t filled=done_*bar_width/total_;
+        const std::string bar(filled,'#');
+        const size_t digits=std::to_string(total_).size();
+        std::cout<<'\r'<<stage_<<" ["<<bar<<std::string(bar_width-filled,'.')<<"] "
+                 <<std::setw(3)<<(done_*100/total_)<<"% | "
+                 <<std::setw(digits)<<done_<<'/'<<total_<<' '<<unit_;
+        if(done_==total_)std::cout<<'\n';
+        std::cout<<std::flush;
     }
 private:
     std::string stage_;

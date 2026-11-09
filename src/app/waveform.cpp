@@ -244,8 +244,16 @@ int main(int argc, char** argv) {
                         if (completed_events % progress_interval == 0 || completed_events == total_event_limit) {
                             const int percent = total_event_limit > 0
                                 ? completed_events * 100 / total_event_limit : 100;
-                            std::printf("Pointcloud progress: %d/%d events (%d%%)\n",
-                                        completed_events, total_event_limit, percent);
+                            constexpr int bar_width = 24;
+                            const int filled = total_event_limit > 0
+                                ? completed_events * bar_width / total_event_limit : bar_width;
+                            const std::string bar(static_cast<size_t>(filled), '#');
+                            const std::string full_bar = bar + std::string(bar_width - filled, '.');
+                            const int digits = static_cast<int>(std::to_string(total_event_limit).size());
+                            std::printf("\rPointcloud [%s] %3d%% | %*d/%d events%s",
+                                        full_bar.c_str(), percent, digits, completed_events,
+                                        total_event_limit,
+                                        completed_events == total_event_limit ? "\n" : "");
                             std::fflush(stdout);
                         }
                     }
