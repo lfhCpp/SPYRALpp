@@ -1007,10 +1007,9 @@ struct KalmanFitter::Impl {
         }
 
         // ---- 1b) Be12 macro's adaptive ClusterizeSmooth3D measurements ----
-        // It seeds a new cluster every 15 mm, averages all cloud points inside
-        // a 20/25 mm sphere, then smooths at half radius around each centroid
-        // and each adjacent midpoint. This preserves the curved local track
-        // shape better than fixed equal-population bins.
+        // Seed spacing is 15 mm and each measurement is the centroid of all
+        // raw hits within the KE-dependent 20/25 mm sphere, matching
+        // AtTrackTransformer::ClusterizeSmooth3D.
         const double p_est = guess.brho * kBrStiffness * std::abs(Z) * 1000.0;
         const double ke_est = p_est > 0.0 ? std::sqrt(p_est * p_est + mass * mass) - mass : 0.0;
         const double radius = ke_est < 3.0 ? 25.0 : 20.0;
@@ -1084,42 +1083,17 @@ struct KalmanFitter::Impl {
             if (separated) coarse.push_back(candidate);
             ref = h;
         }
-        if (coarse.size() < 2) coarse.push_back(centroid_near(hits.back(), radius, nullptr));
-
         std::vector<FitMeasurement> meas;
-        if (coarse.size() > 2) {
-            const double smooth_radius = radius * 0.5;
-            for (size_t i = 0; i + 1 < coarse.size(); ++i) {
-                if (has_near(coarse[i], smooth_radius)) {
-                    FitMeasurement m;
-                    m.point = centroid_near(coarse[i], smooth_radius,
-                        cfg.per_cluster_covariance ? &m.covariance : nullptr);
-                    meas.push_back(m);
-                }
-                CloudPoint mid = coarse[i];
-                mid.x = 0.5 * (coarse[i].x + coarse[i + 1].x);
-                mid.y = 0.5 * (coarse[i].y + coarse[i + 1].y);
-                mid.z = 0.5 * (coarse[i].z + coarse[i + 1].z);
-                if (has_near(mid, smooth_radius)) {
-                    FitMeasurement m;
-                    m.point = centroid_near(mid, smooth_radius,
-                        cfg.per_cluster_covariance ? &m.covariance : nullptr);
-                    meas.push_back(m);
-                }
-            }
-            if (has_near(coarse.back(), smooth_radius)) {
-                FitMeasurement m;
-                m.point = centroid_near(coarse.back(), smooth_radius,
-                    cfg.per_cluster_covariance ? &m.covariance : nullptr);
-                meas.push_back(m);
-            }
-        } else {
-            for (const auto& c : coarse) {
-                FitMeasurement m;
-                m.point = centroid_near(c, radius,
-                    cfg.per_cluster_covariance ? &m.covariance : nullptr);
-                meas.push_back(m);
-            }
+        // OpenKF-Claude's AtTrackTransformer::ClusterizeSmooth3D emits one
+        // overlapping-radius centroid for each accepted seed. Do not add a
+        // second midpoint-smoothing pass here; that changes the measurement
+        // set and hence the UKF likelihood.
+        for (const auto& c : coarse) {
+            if (!has_near(c, radius)) continue;
+            FitMeasurement m;
+            m.point = centroid_near(c, radius,
+                cfg.per_cluster_covariance ? &m.covariance : nullptr);
+            meas.push_back(m);
         }
         if (cfg.z_pad_plane_mm <= 0.0 && direction_known) {
             const bool forward = guess.direction == 0;
@@ -1128,27 +1102,33 @@ struct KalmanFitter::Impl {
             });
         }
         if (cfg.z_pad_plane_mm > 0.0 && meas.size() > 1) {
-            // z_pad_plane_mm reflects digi-z into the lab frame. The drift
-            // coordinate is monotonic along a physical track, while a greedy
-            // nearest-neighbour walk can jump to an adjacent helix turn where
-            // turns overlap in x-y. Estimation.direction is defined in digi-z,
-            // so reflecting z reverses that ordering. Follow the fitted
-            // physical direction; this also starts near the estimated vertex.
-            bool lab_z_ascending = guess.direction == 1;
-            if (guess.direction != 0 && guess.direction != 1 &&
-                std::isfinite(guess.vertex_z)) {
-                const double vertex_lab_z = cfg.z_pad_plane_mm - guess.vertex_z;
-                const auto [min_it, max_it] = std::minmax_element(
-                    meas.begin(), meas.end(), [](const FitMeasurement& a, const FitMeasurement& b) {
-                        return a.point.z < b.point.z;
-                    });
-                lab_z_ascending = std::abs(min_it->point.z - vertex_lab_z) <=
-                                  std::abs(max_it->point.z - vertex_lab_z);
+            // Match OpenKF-Claude: start at highest digi Z (lowest lab Z),
+            // then follow a nearest-neighbour walk through the clustered hits.
+            size_t seed = 0;
+            for (size_t i = 1; i < meas.size(); ++i)
+                if (meas[i].point.z < meas[seed].point.z) seed = i;
+            std::vector<FitMeasurement> ordered;
+            ordered.reserve(meas.size());
+            std::vector<bool> used(meas.size(), false);
+            ordered.push_back(meas[seed]);
+            used[seed] = true;
+            while (ordered.size() < meas.size()) {
+                const auto& prev = ordered.back().point;
+                size_t best = meas.size();
+                double best_d2 = std::numeric_limits<double>::infinity();
+                for (size_t i = 0; i < meas.size(); ++i) {
+                    if (used[i]) continue;
+                    const double dx = meas[i].point.x - prev.x;
+                    const double dy = meas[i].point.y - prev.y;
+                    const double dz = meas[i].point.z - prev.z;
+                    const double d2 = dx * dx + dy * dy + dz * dz;
+                    if (d2 < best_d2) { best_d2 = d2; best = i; }
+                }
+                if (best == meas.size()) break;
+                ordered.push_back(meas[best]);
+                used[best] = true;
             }
-            std::stable_sort(meas.begin(), meas.end(), [lab_z_ascending](const FitMeasurement& a,
-                                                                         const FitMeasurement& b) {
-                return lab_z_ascending ? a.point.z < b.point.z : a.point.z > b.point.z;
-            });
+            meas.swap(ordered);
             direction_known = true;
         }
         std::vector<CloudPoint> spaced;
@@ -1438,19 +1418,19 @@ struct KalmanFitter::Impl {
             double path_mm = 0.0;
             const double measured_gap_mm = std::abs(hits[k].z - hits[k - 1].z);
             const bool continuing_gap = gap_pending;
-            const bool be12_z_order = direction_known && cfg.z_pad_plane_mm > 0.0;
-            bool use_z_plane = be12_z_order ||
-                (direction_known && cfg.z_pad_plane_mm <= 0.0 &&
-                 (gap_pending || measured_gap_mm > 80.0));
-            if (cfg.verbose && be12_z_order)
-                std::fprintf(stderr, "[kalman] propagate Be12 measurement plane k=%d/%d dz=%.1f mm theta=%.2f deg\n",
-                             k, n, hits[k].z - hits[k - 1].z,
-                             x[4] * Units::RAD2DEG);
-            else if (cfg.verbose && use_z_plane)
+            // Match ATTPCROOT's nominal update surface: propagate to the
+            // closest-approach surface of each 3D measurement. A z-plane
+            // update for every Be12 hit changes the filter model and can
+            // select a different helix crossing. Reserve z-plane propagation
+            // for long uninstrumented intervals, where it bridges a genuine
+            // pad-coverage gap.
+            bool use_z_plane = direction_known &&
+                (gap_pending || measured_gap_mm > 80.0);
+            if (cfg.verbose && use_z_plane)
                 std::fprintf(stderr, "[kalman] bridge uninstrumented z gap k=%d/%d gap=%.1f mm theta=%.2f deg\n",
                              k, n, measured_gap_mm, x[4] * Units::RAD2DEG);
             bool mean_ok = use_z_plane
-                ? prop.ToZPlane(x, 1.0, point, mean_prop, &path_mm, be12_z_order)
+                ? prop.ToZPlane(x, 1.0, point, mean_prop, &path_mm, false)
                 : prop.ToPoint(x, 1.0, point, mean_prop, &path_mm);
             // On a curling track the tangent-plane closest-approach test can
             // select a later helix turn even when the measured z is only a
@@ -1498,7 +1478,7 @@ struct KalmanFitter::Impl {
                     double ref_path_mm = 0.0;
                     bool ref_ok = use_z_plane
                         ? prop.ToZPlane(ref_state, 1.0, point, ref_prop, &ref_path_mm,
-                                        be12_z_order)
+                                        false)
                         : prop.ToPoint(ref_state, 1.0, point, ref_prop, &ref_path_mm);
                     const double ref_wrong_turn_dz = ref_ok ? ref_prop[2] - hits[k].z : 0.0;
                     if (ref_ok && !use_z_plane && direction_known &&
@@ -1550,12 +1530,12 @@ struct KalmanFitter::Impl {
                 // unpropagated sigma point into the weighted transform.
                 const double preferred_path_mm = use_z_plane ? sigma_path_mm : -1.0;
                 bool sigma_ok = use_z_plane
-                    ? prop.ToZPlane(xi, v, point, xo, nullptr, be12_z_order)
+                    ? prop.ToZPlane(xi, v, point, xo, nullptr, false)
                     : prop.ToPlane(xi, v, point, plane_normal, xo, preferred_path_mm);
                 constexpr double kSigmaWrongTurnZToleranceMm = 20.0;
                 const bool wrong_turn_crossing = sigma_ok && use_z_plane &&
                     std::abs(xo[2] - hits[k].z) > kSigmaWrongTurnZToleranceMm;
-                if (use_z_plane && !be12_z_order && (!sigma_ok || wrong_turn_crossing))
+                if (use_z_plane && (!sigma_ok || wrong_turn_crossing))
                     sigma_ok = prop.ToZPlane(xi, v, point, xo, nullptr, true);
                 if (!sigma_ok || (use_z_plane &&
                     std::abs(xo[2] - hits[k].z) > kSigmaWrongTurnZToleranceMm)) {

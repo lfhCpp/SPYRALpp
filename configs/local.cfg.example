@@ -63,19 +63,32 @@ min_total_trajectory_points = 30
 reinsch_lambda = 100
 
 [solver]
-# Optional: set these paths to use an external target and PID cut.
-# gas_data_path = /path/to/target.json
+# This repository-local target follows the current a1954 OpenKF Be12 macro.
+gas_data_path = be12_target_300torr.json
 # particle_id_filename = /path/to/pid_gate.json
 ic_min_val = 500
 ic_max_val = 800
 fitter = minuit
-kalman_hypotheses = p,d,t,he3,alpha
+kalman_hypotheses = p
 # Detector fields are positive magnitudes; Spyral 1.0 propagation uses -B/-E.
 kalman_bfield_sign = -1
-kalman_efield_vm = 55000
+kalman_efield_vm = 0 # OpenKF-Claude Be12 fit macro leaves ion-track E at zero
 kalman_efield_sign = -1
 kalman_z_pad_plane_mm = 1000
 kalman_min_ke_mev = 0.01
+kalman_meas_sigma = 0.5
+kalman_mom_sigma_frac = 0.1
+kalman_min_clusters = 10
+kalman_alpha = 0.001
+kalman_beta = 2
+kalman_kappa = 0
+kalman_iterations = 1
+kalman_smooth = 1
+kalman_straggling = 0
+kalman_mult_scattering = 0
+kalman_innovation_chi2_max = 0
+kalman_min_measurement_fraction = 0
+kalman_chi2_max = 0
 ke_min = 0.1
 ke_max = 70
 ke_bins = 256

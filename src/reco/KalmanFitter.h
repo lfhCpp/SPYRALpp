@@ -65,7 +65,7 @@ struct KalmanConfig {
 
     // 多重散射（Highland），默认关
     bool mult_scattering = false;
-    double rad_length_mm = 7.6e6;     // H2 600 torr 量级
+    double rad_length_mm = 7.6e6;     // H2，有效值；默认多重散射关闭
 
     // 拟合控制
     int measurements = 30;        // 兼容旧配置；Be12现按自适应空间聚类生成量测点
@@ -79,16 +79,15 @@ struct KalmanConfig {
     double step_mm = 0.1;         // 对齐 AtRK4Stepper 的 0.1 mm 步长
     int max_steps = 30000;        // 单次传播上限；覆盖典型无 pad 区后的螺旋接续
     double min_ke_mev = 0.01;     // ATTPCROOT AtPropagator 的停止阈值
-    double chi2_max = 25.0;       // final χ²/ndf gate; enables guarded coverage recovery
-    double innovation_chi2_max = 25.0; // Optional per-hit outlier gate; recovery pass can disable it.
-    double min_measurement_fraction = 0.20; // 至少保留五分之一的有效测量，拒绝不完整拟合
+    double chi2_max = 0.0;        // 0 disables the local final χ² gate; matches OpenKF-Claude
+    double innovation_chi2_max = 0.0; // 0 disables local per-hit innovation rejection
+    double min_measurement_fraction = 0.0; // 0 disables the local coverage gate
     int iterations = 1;              // >1 enables ATTPCROOT-style smoothed-reference passes
     double ref_covariance_inflation = 4.0; // Keep reference-track re-pass covariance conservative
 
     // UKF 权重参数（alpha, beta, kappa）
-    // Avoid near-singular sigma-point weights for branch-sensitive helix
-    // propagation; alpha=1e-3 made the central weight about -1e6 (n=7).
-    double alpha = 0.1;
+    // OpenKF-Claude a1954 Be12 macro uses (alpha,beta,kappa)=(1e-3,2,0).
+    double alpha = 1e-3;
     double beta = 2.0;
     double kappa = 0.0;
 };
