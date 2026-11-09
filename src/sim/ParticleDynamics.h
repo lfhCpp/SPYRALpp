@@ -114,6 +114,8 @@ public :
    void ConfigureTarget(int A, int Z, double stoich, double density_gcm3, double length_cm = 100.0);
    void ConfigureTarget(const std::vector<Element>& compound, double density_gcm3,
                         double length_cm = 100.0);
+   // 直接使用配置层构造的靶对象；GasTarget/GasMixTarget 会负责由压力计算密度。
+   void ConfigureTarget(const Target& target, double length_cm = 100.0);
 
    // 设置场内场强
    void ConfigureFields(double bfield_t, double efield_vm) { Bfield = bfield_t; Efield = efield_vm; }

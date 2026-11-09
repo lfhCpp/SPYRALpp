@@ -44,12 +44,11 @@ bool DetectorSimulator::Init(const DetectorConfig& cfg, const Target* gas) {
     response_.Init(cfg_);
 
     if (gas != nullptr) {
-        const std::vector<Element> comp = gas->compound();
-        if (comp.empty()) {
+        if (gas->compound().empty()) {
             std::fprintf(stderr, "[DetectorSimulator] 靶材组成为空\n");
             return false;
         }
-        dynamics_.ConfigureTarget(comp, gas->density());
+        dynamics_.ConfigureTarget(*gas);
     }
     dynamics_.ConfigureFields(cfg_.bfield_t, cfg_.efield_vm);
     dynamics_.SetStopZ(0.0, cfg_.length_m);

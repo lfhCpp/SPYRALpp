@@ -607,13 +607,12 @@ struct KalmanFitter::Impl {
             std::fprintf(stderr, "[KalmanFitter] 核素质量表未加载\n");
             return false;
         }
-        const std::vector<Element> comp = gas.compound();
-        if (comp.empty()) {
+        if (gas.compound().empty()) {
             std::fprintf(stderr, "[KalmanFitter] 靶材组成为空\n");
             return false;
         }
 
-        dyn.ConfigureTarget(comp, gas.density());
+        dyn.ConfigureTarget(gas);
         dyn.ConfigureFields(bfield, efield);
         dyn.SetParticle(A, Z);
         dyn.SetELossScale(1.0);

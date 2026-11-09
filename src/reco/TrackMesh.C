@@ -67,7 +67,7 @@ bool TrackMesh::Build(const MeshConfig& cfg,int A,int Z,const Target& gas,double
     composition_=gas.compound();
     if(!Utils::validCompound(composition_))return false;
     ParticleDynamics dynamics;
-    dynamics.ConfigureTarget(composition_,gas.density());
+    dynamics.ConfigureTarget(gas);
     // Match Spyral 1.0's mesh convention: TrackGenerator stores positive field
     // magnitudes in metadata, then passes -B and -E to the equation of motion.
     // The detector config continues to use positive magnitudes at this API.

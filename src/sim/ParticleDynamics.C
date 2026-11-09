@@ -662,6 +662,11 @@ void ParticleDynamics::ConfigureTarget(const std::vector<Element>& compound,
     this->proj_eom = catima::Projectile(ejectile_a, ejectile_z);
 }
 
+void ParticleDynamics::ConfigureTarget(const Target& target, double length_cm) {
+    const auto compound = target.compound();
+    ConfigureTarget(compound, target.density(), length_cm);
+}
+
 void ParticleDynamics::Propagate(double ke_mev, const double vtx[3], double theta,
                                  double phi, std::vector<TrackPoint>& track,
                                  double dt, int max_steps) {

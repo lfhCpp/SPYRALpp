@@ -19,6 +19,14 @@ trace_dir = /path/to/12Be
 workspace = workspace
 format = python
 
+[gas]
+# H2 target; density is calculated from this pressure with GasTarget.
+components = 1
+component0.a = 1
+component0.z = 1
+component0.s = 2
+pressure_torr = 300
+
 [pointcloud]
 waveform_fit = false
 
@@ -63,8 +71,6 @@ min_total_trajectory_points = 30
 reinsch_lambda = 100
 
 [solver]
-# This repository-local target follows the current a1954 OpenKF Be12 macro.
-gas_data_path = be12_target_300torr.json
 # particle_id_filename = /path/to/pid_gate.json
 ic_min_val = 500
 ic_max_val = 800
